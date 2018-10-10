@@ -1,0 +1,19 @@
+#!/bin/bash
+umask 0077
+if [ $# -ne 2 ]; then
+	echo "Usage: $0 <linux socket path> <windows socket path>"
+	exit 1
+fi
+if [ "$1" == "-" ] && [ "$2" == "-" ] && [ ! -z "$WSL_ASSUAN_UNIX_PROXY_TARGET" ]; then
+	DATA=$(xxd -ps "$WSL_ASSUAN_UNIX_PROXY_TARGET")
+	PORT=$(echo "$DATA" | sed -e 's/^\(\(3.\)\+\)0a\(.\+\)$/\1/' | xxd -ps -r)
+	TOKEN=$(echo "$DATA" | sed -e 's/^\(\(3.\)\+\)0a\(.\+\)$/\3/' | xxd -ps -r)
+	exec socat tcp-connect:127.0.0.1:"$PORT" stdio < <(echo -n "$TOKEN"; cat)
+else
+	rm -f "$1"
+	trap "break" SIGINT SIGTERM
+	while true; do
+		WSL_ASSUAN_UNIX_PROXY_TARGET="$2" socat unix-listen:"$1" exec:"$0 - -"
+	done
+	exit 0
+fi
