@@ -58,7 +58,11 @@ def run(listen, connect):
 
 				logging.info("Connecting to port " + str(port))
 				with socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP) as windows:
-					windows.connect(("127.0.0.1", port))
+					try:
+						windows.connect(("127.0.0.1", port))
+					except socket.error as e:
+						logging.error(e)
+						return
 
 					logging.debug("Sending token")
 					windows.send(token)
