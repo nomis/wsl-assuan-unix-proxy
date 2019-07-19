@@ -91,7 +91,7 @@ def run(listen, connect):
 if __name__ == "__main__":
 	logging.basicConfig(level=logging.INFO, format="%(asctime)-15s [%(process)10d] %(levelname)-7s %(message)s")
 
-	parser = argparse.ArgumentParser(description="Window Subsystem for Linux Assuan Unix Proxy")
+	parser = argparse.ArgumentParser(description="Windows Subsystem for Linux Assuan Unix Proxy")
 	parser.add_argument("-l", "--listen", metavar="LISTEN_FILENAME", type=str, default=DEFAULT_LISTEN, help="Linux socket path [" + DEFAULT_LISTEN + "]")
 	parser.add_argument("-c", "--connect", metavar="CONNECT_FILENAME", type=str, default=DEFAULT_CONNECT, help="Windows socket path [" + DEFAULT_CONNECT + "]")
 
