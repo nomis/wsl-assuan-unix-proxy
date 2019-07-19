@@ -1,5 +1,5 @@
-#!/bin/bash
-# Copyright 2018  Simon Arlott
+#!/usr/bin/env python3
+# Copyright 2018-2019  Simon Arlott
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,21 +14,73 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-umask 0077
-if [ $# -ne 2 ]; then
-	echo "Usage: $0 <linux socket path> <windows socket path>"
-	exit 1
-fi
-if [ "$1" == "-" ] && [ "$2" == "-" ] && [ ! -z "$WSL_ASSUAN_UNIX_PROXY_TARGET" ]; then
-	DATA=$(xxd -ps "$WSL_ASSUAN_UNIX_PROXY_TARGET")
-	PORT=$(echo "$DATA" | sed -e 's/^\(\(3.\)\+\)0a\(.\+\)$/\1/' | xxd -ps -r)
-	TOKEN=$(echo "$DATA" | sed -e 's/^\(\(3.\)\+\)0a\(.\+\)$/\3/')
-	exec socat tcp-connect:127.0.0.1:"$PORT" stdio < <(echo "$TOKEN" | xxd -ps -r; cat)
-else
-	rm -f "$1"
-	trap "break" SIGINT SIGTERM
-	while true; do
-		WSL_ASSUAN_UNIX_PROXY_TARGET="$2" socat unix-listen:"$1" exec:"$0 - -"
-	done
-	exit 0
-fi
+import argparse
+import logging
+import os
+import socket
+
+
+DEFAULT_LISTEN = os.path.join(os.environ["HOME"], ".gnupg", "S.gpg-agent")
+DEFAULT_CONNECT = os.path.join("/mnt/c/Users", os.environ["USER"], "AppData", "Roaming", "gnupg", "S.gpg-agent")
+
+
+def run(listen, connect):
+	os.umask(0o0077)
+
+	logging.info("Opening listening socket on " + listen)
+	os.unlink(listen)
+	linux = socket.socket(family=socket.AF_UNIX, type=socket.SOCK_STREAM)
+	linux.bind(listen)
+	linux.listen()
+	logging.info("Listening on " + listen)
+	os.set_inheritable(linux.fileno(), False)
+
+	id = 0
+	running = True
+	while running:
+		(client, address) = linux.accept()
+		id += 1
+		try:
+			if os.fork() == 0:
+				logging.info("Accepted connection " + str(id))
+				running = False
+
+				try:
+					with open(connect, "rb") as f:
+						lines = f.read().split(b"\n", 2)
+						if len(lines) < 2:
+							logging.error("File " + connect + " invalid: " + repr(lines))
+						port = int(lines[0].decode("ascii"))
+						token = lines[1]
+				except FileNotFoundError as e:
+					logging.error(e)
+					return
+
+				logging.info("Connecting to port " + str(port))
+				with socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP) as windows:
+					windows.connect(("127.0.0.1", port))
+
+					logging.debug("Sending token")
+					windows.send(token)
+
+					logging.debug("Bridging sockets")
+					try:
+						os.set_inheritable(client.fileno(), True)
+						os.set_inheritable(windows.fileno(), True)
+						os.execlp("socat", "socat", "fd:" + str(client.fileno()), "fd:" + str(windows.fileno()))
+					except OSError as e:
+						logging.error(e)
+						return
+		finally:
+			client.close()
+
+
+if __name__ == "__main__":
+	logging.basicConfig(level=logging.INFO, format="%(asctime)-15s [%(process)10d] %(levelname)-7s %(message)s")
+
+	parser = argparse.ArgumentParser(description="Window Subsystem for Linux Assuan Unix Proxy")
+	parser.add_argument("-l", "--listen", metavar="LISTEN_FILENAME", type=str, default=DEFAULT_LISTEN, help="Linux socket path [" + DEFAULT_LISTEN + "]")
+	parser.add_argument("-c", "--connect", metavar="CONNECT_FILENAME", type=str, default=DEFAULT_CONNECT, help="Windows socket path [" + DEFAULT_CONNECT + "]")
+
+	args = parser.parse_args()
+	run(args.listen, args.connect)
