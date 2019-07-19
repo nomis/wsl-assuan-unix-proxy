@@ -96,4 +96,7 @@ if __name__ == "__main__":
 	parser.add_argument("-c", "--connect", metavar="CONNECT_FILENAME", type=str, default=DEFAULT_CONNECT, help="Windows socket path [" + DEFAULT_CONNECT + "]")
 
 	args = parser.parse_args()
-	run(args.listen, args.connect)
+	try:
+		run(args.listen, args.connect)
+	finally:
+		cleanup_socket(args.listen)
