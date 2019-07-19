@@ -96,6 +96,15 @@ if __name__ == "__main__":
 	parser.add_argument("-c", "--connect", metavar="CONNECT_FILENAME", type=str, default=DEFAULT_CONNECT, help="Windows socket path [" + DEFAULT_CONNECT + "]")
 
 	args = parser.parse_args()
+
+	def sigterm_handler(signum, frame):
+		cleanup_socket(args.listen)
+		signal.signal(signal.SIGTERM, signal.SIG_DFL)
+		os.kill(os.getpid(), signal.SIGTERM)
+		sys.exit(1)
+
+	signal.signal(signal.SIGTERM, sigterm_handler)
+
 	try:
 		run(args.listen, args.connect)
 	finally:
