@@ -17,18 +17,27 @@
 import argparse
 import logging
 import os
+import signal
 import socket
+import sys
 
 
 DEFAULT_LISTEN = os.path.join(os.environ["HOME"], ".gnupg", "S.gpg-agent")
 DEFAULT_CONNECT = os.path.join("/mnt/c/Users", os.environ["USER"], "AppData", "Roaming", "gnupg", "S.gpg-agent")
 
 
+def cleanup_socket(listen):
+	try:
+		os.unlink(listen)
+	except FileNotFoundError:
+		pass
+
+
 def run(listen, connect):
 	os.umask(0o0077)
 
 	logging.info("Opening listening socket on " + listen)
-	os.unlink(listen)
+	cleanup_socket(listen)
 	linux = socket.socket(family=socket.AF_UNIX, type=socket.SOCK_STREAM)
 	linux.bind(listen)
 	linux.listen()
