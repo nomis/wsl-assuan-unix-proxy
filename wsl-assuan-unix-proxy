@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2018-2019  Simon Arlott
+# Copyright 2018-2020  Simon Arlott
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@ import os
 import signal
 import socket
 import sys
+import time
 
 
 DEFAULT_LISTEN = os.path.join(os.environ["HOME"], ".gnupg", "S.gpg-agent")
@@ -54,36 +55,44 @@ def run(listen, connect):
 				logging.info("Accepted connection " + str(id))
 				running = False
 
-				try:
-					with open(connect, "rb") as f:
-						lines = f.read().split(b"\n", 2)
-						if len(lines) < 2:
-							logging.error("File " + connect + " invalid: " + repr(lines))
-						port = int(lines[0].decode("ascii"))
-						token = lines[1]
-				except FileNotFoundError as e:
-					logging.error(e)
-					return
+				attempts = 20
+				while attempts > 0:
+					attempts -= 1
 
-				logging.info("Connecting to port " + str(port))
-				with socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP) as windows:
 					try:
-						windows.connect(("127.0.0.1", port))
-					except socket.error as e:
+						with open(connect, "rb") as f:
+							lines = f.read().split(b"\n", 2)
+							if len(lines) < 2:
+								logging.error("File " + connect + " invalid: " + repr(lines))
+							port = int(lines[0].decode("ascii"))
+							token = lines[1]
+					except FileNotFoundError as e:
 						logging.error(e)
 						return
 
-					logging.debug("Sending token")
-					windows.send(token)
+					logging.info("Connecting to port " + str(port))
+					with socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP) as windows:
+						try:
+							windows.connect(("127.0.0.1", port))
+						except socket.error as e:
+							logging.error(e)
+							time.sleep(0.5)
+							continue
 
-					logging.debug("Bridging sockets")
-					try:
-						os.set_inheritable(client.fileno(), True)
-						os.set_inheritable(windows.fileno(), True)
-						os.execlp("socat", "socat", "fd:" + str(client.fileno()), "fd:" + str(windows.fileno()))
-					except OSError as e:
-						logging.error(e)
-						return
+						logging.debug("Sending token")
+						windows.send(token)
+
+						logging.debug("Bridging sockets")
+						try:
+							os.set_inheritable(client.fileno(), True)
+							os.set_inheritable(windows.fileno(), True)
+							os.execlp("socat", "socat", "fd:" + str(client.fileno()), "fd:" + str(windows.fileno()))
+						except OSError as e:
+							logging.error(e)
+							time.sleep(0.5)
+							continue
+
+				logging.error("Failed to connect")
 		finally:
 			client.close()
 
