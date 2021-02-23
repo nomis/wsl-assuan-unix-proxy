@@ -1,3 +1,8 @@
+Install dependencies::
+
+    pip3 install -r requirements.txt
+
+
 Execute in the background::
 
     ./wsl-assuan-unix-proxy
