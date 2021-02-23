@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2018-2020  Simon Arlott
+# Copyright 2018-2021  Simon Arlott
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,8 +15,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import argparse
+import inotify.adapters
+import inotify.constants
 import logging
 import os
+import select
 import signal
 import socket
 import sys
@@ -25,6 +28,20 @@ import time
 
 DEFAULT_LISTEN = os.path.join(os.environ["HOME"], ".gnupg", "S.gpg-agent")
 DEFAULT_CONNECT = os.path.join("/mnt/c/Users", os.environ["USER"], "AppData", "Roaming", "gnupg", "S.gpg-agent")
+
+
+def create_socket(listen):
+	s = socket.socket(family=socket.AF_UNIX, type=socket.SOCK_STREAM)
+	try:
+		s.bind(listen)
+	except OSError as e:
+		logging.error("Socket already exists")
+		s.close()
+		return None
+	s.listen()
+	logging.info("Listening on " + listen)
+	os.set_inheritable(s.fileno(), False)
+	return s
 
 
 def cleanup_socket(listen):
@@ -39,15 +56,47 @@ def run(listen, connect):
 
 	logging.info("Opening listening socket on " + listen)
 	cleanup_socket(listen)
-	linux = socket.socket(family=socket.AF_UNIX, type=socket.SOCK_STREAM)
-	linux.bind(listen)
-	linux.listen()
-	logging.info("Listening on " + listen)
-	os.set_inheritable(linux.fileno(), False)
+
+	nfy = inotify.adapters.Inotify(block_duration_s=0)
+	nfy.add_watch(os.path.dirname(listen), inotify.constants.IN_DELETE)
+	events = nfy.event_gen(yield_nones=True)
+
+	linux = create_socket(listen)
 
 	id = 0
 	running = True
 	while running:
+		if linux is None:
+			nfy.remove_watch(os.path.dirname(listen))
+			while True:
+				event = next(events)
+				if event is None:
+					break
+				
+			cleanup_socket(listen)
+			nfy.add_watch(os.path.dirname(listen), inotify.constants.IN_DELETE)
+
+			linux = create_socket(listen)
+			continue
+
+		rfds, wfds, xfds = select.select([linux, nfy._Inotify__inotify_fd], [], [])
+
+		if nfy._Inotify__inotify_fd in rfds:
+			while True:
+				event = next(events)
+				if event is None:
+					break
+
+				if listen == os.path.join(*event[2:4]):
+					logging.info("Socket has been deleted")
+					if linux is not None:
+						linux.close()
+					linux = None
+			continue
+
+		if linux not in rfds:
+			continue
+
 		(client, address) = linux.accept()
 		id += 1
 		try:
